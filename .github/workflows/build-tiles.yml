@@ -1,0 +1,60 @@
+# 東海の地図データ（区画ファイル）を作って、GitHub Pages に公開する
+name: Build tiles
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 18 3 * *'     # 毎月 日本時間の4日 3:00
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      BBOX: "135.85,33.7,139.2,36.5"   # 愛知・岐阜・三重・静岡（西,南,東,北）
+    steps:
+      - name: 区画を作るプログラムを関東用リポジトリから読み込む
+        uses: actions/checkout@v4
+        with:
+          repository: fictitious-mika/guruguri-data
+
+      - name: osmium-tool を入れる
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y osmium-tool
+
+      - name: 日本全域の地図データをダウンロード
+        run: |
+          curl -L --fail --retry 3 --retry-delay 20 -o japan-latest.osm.pbf \
+            https://download.geofabrik.de/asia/japan-latest.osm.pbf
+
+      - name: 区画データを作る
+        run: python3 tools/build_tiles.py --bbox "$BBOX" --pbf japan-latest.osm.pbf --out site --work work
+
+      - name: 作ったデータの大きさ
+        run: |
+          du -sh site
+          find site -type f | wc -l
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
